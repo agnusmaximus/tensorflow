@@ -60,6 +60,7 @@ class LocalMaster : public MasterInterface {
   MutableRunStepRequestWrapper* CreateRunStepRequest() override;
 
   Status Kill() override;
+  Status ResetKill() override;
 
   Status CloseSession(CallOptions* call_options,
                       const CloseSessionRequest* request,

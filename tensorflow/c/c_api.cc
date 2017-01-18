@@ -331,6 +331,11 @@ void TF_KillSession(TF_DeprecatedSession* s, TF_Status *status){
   s->session->Kill();
 }
 
+void TF_ResetKillSession(TF_DeprecatedSession* s, TF_Status *status) {
+  std::cout << "c_api.cc - TF_ResetKillSession..." << std::endl;
+  s->session->ResetKill();
+}
+
 void TF_CloseDeprecatedSession(TF_DeprecatedSession* s, TF_Status* status) {
   status->status = s->session->Close();
 }

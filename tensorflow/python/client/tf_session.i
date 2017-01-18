@@ -162,6 +162,7 @@ tensorflow::ImportNumpy();
 %unignore TF_DeleteBuffer;
 %unignore TF_GetBuffer;
 %unignore TF_KillSession;
+%unignore TF_ResetKillSession;
 %unignore TF_NewStatus;
 %unignore TF_DeleteStatus;
 %unignore TF_GetCode;

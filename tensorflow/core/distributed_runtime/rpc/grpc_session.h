@@ -81,6 +81,7 @@ class GrpcSession : public Session {
 
   Status Close() override;
   Status Kill() override;
+  Status ResetKill() override;
 
   // NOTE: This API is still experimental and may change.
   ::tensorflow::Status PRunSetup(const std::vector<string>& input_names,

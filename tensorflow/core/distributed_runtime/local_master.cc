@@ -106,6 +106,12 @@ Status LocalMaster::PartialRunSetup(CallOptions* call_options,
   return ret;
 }
 
+Status LocalMaster::ResetKill() {
+  std::cout << "LocalMaster - ResetKill()" << std::endl;
+  master_impl_->GetKilledCancellationManager()->ResetCancel();
+  return Status::OK();
+}
+
 Status LocalMaster::Kill() {
   std::cout << "LocalMaster - Kill()" << std::endl;
   {

@@ -145,6 +145,11 @@ class Session {
     return errors::Unimplemented("Kill() is not supported for this session.");
   }
 
+  virtual Status ResetKill() {
+    std::cout << "Did not implement reset kill for " << typeid(*this).name() << std::endl;
+    return errors::Unimplemented("ResetKill() is not supported for this session.");
+  }
+
   /// \brief Like `Run`, but allows users to pass in a `RunOptions` proto and
   /// to retrieve non-Tensor metadata output via a `RunMetadata` proto for this
   /// step.  `run_metadata` may be nullptr, in which case any metadata output is

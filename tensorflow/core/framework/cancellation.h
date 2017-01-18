@@ -49,6 +49,8 @@ class CancellationManager {
 
   CancellationManager();
   ~CancellationManager();
+  
+  void ResetCancel();
 
   // Run all callbacks associated with this manager.
   void StartCancel();

@@ -306,6 +306,11 @@ Status GrpcSession::Kill() {
   return master_->Kill();
 }
 
+Status GrpcSession::ResetKill() {
+  std::cout << "GrpcSession - ResetKill()" << std::endl;
+  return master_->ResetKill();
+}
+
 Status GrpcSession::Close() {
   CloseSessionRequest req;
   {

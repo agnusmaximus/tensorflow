@@ -52,6 +52,11 @@ class MasterInterface {
     return Status::OK();
   }
 
+  virtual Status ResetKill() {
+    std::cout << "master_interface.h - ResetKill() unimplemented" << std::endl;
+    return Status::OK();
+  }
+
   virtual Status RunStep(CallOptions* call_options,
                          RunStepRequestWrapper* request,
                          RunStepResponse* response) = 0;

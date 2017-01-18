@@ -559,6 +559,12 @@ class BaseSession(SessionInterface):
         with errors.raise_exception_on_not_ok_status() as status:
           tf_session.TF_KillSession(self._session, status)
 
+  def reset_kill(self):
+    with self._extend_lock:
+      if self._opened and not self._closed:
+        with errors.raise_exception_on_not_ok_status() as status:
+          tf_session.TF_ResetKillSession(self._session, status)    
+
   def close(self):
     """Closes this session.
 
