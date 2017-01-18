@@ -263,6 +263,7 @@ class CallOp : public AsyncOpKernel {
     opts.step_id = ctx->step_id();
     opts.step_container = ctx->step_container();
     opts.runner = ctx->runner();
+    
     std::vector<Tensor> args;
     args.reserve(ctx->num_inputs());
     for (int i = 0; i < ctx->num_inputs(); ++i) {

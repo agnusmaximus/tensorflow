@@ -17,8 +17,10 @@ limitations under the License.
 #define THIRD_PARTY_TENSORFLOW_CORE_DISTRIBUTED_RUNTIME_LOCAL_MASTER_REGISTRY_H_
 
 #include <memory>
+#include <vector>
 
 #include "tensorflow/core/distributed_runtime/master_interface.h"
+#include "tensorflow/core/lib/core/notification.h"
 
 namespace tensorflow {
 
@@ -57,6 +59,8 @@ class LocalMaster : public MasterInterface {
 
   MutableRunStepRequestWrapper* CreateRunStepRequest() override;
 
+  Status Kill() override;
+
   Status CloseSession(CallOptions* call_options,
                       const CloseSessionRequest* request,
                       CloseSessionResponse* response) override;
@@ -87,6 +91,9 @@ class LocalMaster : public MasterInterface {
   // See `LocalMaster::Lookup` for the factory function that creates
   // objects of this type.
   LocalMaster(Master* master_impl);
+
+  std::vector<Notification *> step_notifications_;
+  mutex step_notifications_mu_;
 
   TF_DISALLOW_COPY_AND_ASSIGN(LocalMaster);
 };

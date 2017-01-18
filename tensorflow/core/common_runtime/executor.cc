@@ -17,6 +17,7 @@ limitations under the License.
 
 #include <atomic>
 #include <deque>
+#include <iostream>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -882,6 +883,7 @@ class ExecutorState {
   FunctionCallFrame* call_frame_;
   const ExecutorImpl* impl_;
   CancellationManager* cancellation_manager_;
+  CancellationManager* killed_cancellation_manager_;
   Executor::Args::Runner runner_;
   bool sync_on_finish_;
 
@@ -998,9 +1000,11 @@ ExecutorState::ExecutorState(const Executor::Args& args, ExecutorImpl* impl)
       call_frame_(args.call_frame),
       impl_(impl),
       cancellation_manager_(args.cancellation_manager),
+      killed_cancellation_manager_(args.killed_cancellation_manager),
       runner_(args.runner),
       sync_on_finish_(args.sync_on_finish),
       num_outstanding_ops_(0) {
+
   // We start the entire execution in iteration 0 of the root frame
   // so let us create the root frame and the state for iteration 0.
   // We assume root_frame_->frame_name.empty().
@@ -1014,6 +1018,8 @@ ExecutorState::ExecutorState(const Executor::Args& args, ExecutorImpl* impl)
       root_frame_->pending_counts, root_frame_->total_input_tensors);
 
   outstanding_frames_.insert({root_frame_->frame_name, root_frame_});
+
+  //CHECK(args.killed_cancellation_manager);
 }
 
 ExecutorState::~ExecutorState() {
@@ -1144,6 +1150,7 @@ void ExecutorState::RunAsync(Executor::DoneCallback done) {
   if (ready.empty()) {
     done(Status::OK());
   } else {
+
     num_outstanding_ops_ = ready.size();
     root_frame_->iterations[0]->outstanding_ops = ready.size();
     done_cb_ = done;
@@ -1198,6 +1205,12 @@ struct ExecutorState::AsyncState {
 };
 
 void ExecutorState::Process(TaggedNode tagged_node, int64 scheduled_usec) {
+
+  std::cout << "KILLED CM " << (long long int)killed_cancellation_manager_ << std::endl;
+  if (killed_cancellation_manager_) {
+    std::cout << "ISCANCELLED " << killed_cancellation_manager_->IsCancelled() << std::endl;
+  }
+
   const NodeItem* nodes = impl_->nodes_;
   TaggedNodeSeq ready;
   TaggedNodeReadyQueue inline_ready;
@@ -1264,6 +1277,9 @@ void ExecutorState::Process(TaggedNode tagged_node, int64 scheduled_usec) {
       nodestats::SetScheduled(stats, scheduled_usec);
       nodestats::SetAllStart(stats);
     }
+
+    std::cout << "Process node: " << id << " step " << params.step_id << " "
+	      << SummarizeNodeDef(node->def()) << std::endl;
 
     if (vlog_) {
       VLOG(1) << "Process node: " << id << " step " << params.step_id << " "
@@ -1689,6 +1705,7 @@ void ExecutorState::PropagateOutputs(const TaggedNode& tagged_node,
 bool ExecutorState::NodeDone(const Status& s, const Node* node,
                              const TaggedNodeSeq& ready, NodeExecStats* stats,
                              TaggedNodeReadyQueue* inline_ready) {
+
   if (stats) {
     nodestats::SetAllEnd(stats);
     if (!SetTimelineLabel(node, stats)) {
@@ -1725,15 +1742,33 @@ bool ExecutorState::NodeDone(const Status& s, const Node* node,
     num_outstanding_ops_.fetch_add(ready_size - 1, std::memory_order_relaxed);
   }
 
+  std::cout << "Done Processing node: " << node->id() << " step " << step_id_ << " " << SummarizeNodeDef(node->def()) << std::endl;
+
+  bool cancelled = false;
+  if (killed_cancellation_manager_) {
+    cancelled = killed_cancellation_manager_->IsCancelled();
+  }
+
+  std::cout << "Done Processing... Is Cancelled - " << cancelled << std::endl;
+
+  if (cancelled) {
+    return true;
+  }
+
   // Schedule the ready nodes in 'ready'.
   if (s.ok()) {
-    ScheduleReady(ready, inline_ready);
+    ScheduleReady(ready, inline_ready);    
   }
   return completed;
 }
 
 void ExecutorState::ScheduleReady(const TaggedNodeSeq& ready,
                                   TaggedNodeReadyQueue* inline_ready) {
+  bool cancelled = false;
+  if (killed_cancellation_manager_) {
+    cancelled = killed_cancellation_manager_->IsCancelled();
+  }
+
   if (ready.empty()) return;
 
   int64 scheduled_usec = 0;
@@ -1749,6 +1784,7 @@ void ExecutorState::ScheduleReady(const TaggedNodeSeq& ready,
   }
   const NodeItem* nodes = impl_->nodes_;
   const TaggedNode* curr_expensive_node = nullptr;
+
   for (auto& tagged_node : ready) {
     const NodeItem& item = nodes[tagged_node.node->id()];
     if (tagged_node.is_dead || !item.kernel_is_expensive) {
@@ -1910,20 +1946,28 @@ void ExecutorState::DumpState() {
 
 void ExecutorState::Finish() {
   mu_.lock();
+  bool cancelled = killed_cancellation_manager_ && killed_cancellation_manager_->IsCancelled();
   auto status = status_;
+  if (cancelled) {
+    status = errors::DeadlineExceeded("Operation killed");
+  }
   auto done_cb = std::move(done_cb_);
   auto runner = std::move(runner_);
   mu_.unlock();
   if (sync_on_finish_ && status.ok()) {
+
     // Block until the device has finished all queued operations. For
     // devices like GPUs that continue to execute Ops after their Compute
     // methods have completed, this ensures that control is not returned to
     // the user until the step (and its side-effects) has actually completed.
     status = impl_->params_.device->Sync();
   }
-  delete this;
-  CHECK(done_cb != nullptr);
-  runner([=]() { done_cb(status); });
+
+  if (done_cb) {
+    //delete this;
+    CHECK(done_cb != nullptr);
+    runner([=]() { done_cb(status); });
+  }
 }
 
 void ExecutorState::FindOrCreateChildFrame(FrameState* frame, int64 iter,
@@ -2234,6 +2278,7 @@ bool ExecutorState::FrameState::CleanupIterations(int64 iter,
 }
 
 void ExecutorImpl::RunAsync(const Args& args, DoneCallback done) {
+  //CHECK(args.killed_cancellation_manager);
   (new ExecutorState(args, this))->RunAsync(done);
 }
 

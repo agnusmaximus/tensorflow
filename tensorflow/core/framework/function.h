@@ -378,6 +378,7 @@ class FunctionLibraryRuntime {
   // Does not take ownership of "rets".
   struct Options {
     CancellationManager* cancellation_manager = nullptr;
+
     // The id of the step that is calling this function.
     int64 step_id = 0;
 

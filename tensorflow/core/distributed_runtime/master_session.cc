@@ -16,6 +16,7 @@ limitations under the License.
 #include "tensorflow/core/distributed_runtime/master_session.h"
 
 #include <unordered_map>
+#include <iostream>
 #include <unordered_set>
 #include <vector>
 
@@ -62,12 +63,14 @@ class MasterSession::ReffedClientGraph : public core::RefCounted {
                     const SessionOptions& session_opts,
                     StatsPublisherFactory stats_publisher_factory,
                     SimpleGraphExecutionState* execution_state, bool is_partial,
-                    WorkerCacheInterface* worker_cache)
+                    WorkerCacheInterface* worker_cache,
+		    CancellationManager* killed_cancellation_manager)
       : session_handle_(handle),
         client_graph_(std::move(cg)),
         session_opts_(session_opts),
         is_partial_(is_partial),
-        worker_cache_(worker_cache) {
+        worker_cache_(worker_cache),
+        killed_cancellation_manager_(killed_cancellation_manager) {
     VLOG(1) << "Created ReffedClientGraph for node with "
             << client_graph_->graph.num_node_ids();
 
@@ -220,6 +223,7 @@ class MasterSession::ReffedClientGraph : public core::RefCounted {
   }
 
  private:
+  CancellationManager* killed_cancellation_manager_;
   const string session_handle_;
   const std::unique_ptr<SimpleClientGraph> client_graph_;
   const SessionOptions session_opts_;
@@ -515,6 +519,7 @@ Status MasterSession::ReffedClientGraph::RunPartitions(
     CallOptions* call_opts, const RunStepRequestWrapper& req,
     RunStepResponse* resp, CancellationManager* cm,
     const bool is_last_partial_run) {
+
   VLOG(2) << "RunPartitions step_id " << step_id << " execution_count "
           << execution_count;
   // Maps the names of fed tensors to their index in `req`.
@@ -612,6 +617,8 @@ Status MasterSession::ReffedClientGraph::RunPartitions(
   for (int i = 0; i < num; ++i) {
     const Part& part = partitions_[i];
     RunManyGraphs::Call* call = calls.get(i);
+    call->opts.SetKilledCancellationManager(killed_cancellation_manager_);
+    CHECK(call->opts.GetKilledCancellationManager());
     TRACEPRINTF("Partition %d %s", i, part.name.c_str());
     part.worker->RunGraphAsync(
         &call->opts, call->req.get(), &call->resp,
@@ -989,6 +996,7 @@ MasterSession::MasterSession(const SessionOptions& opt, const MasterEnv* env,
       stats_publisher_factory_(std::move(stats_publisher_factory)),
       graph_version_(0),
       run_graphs_(5),
+      killed_cancellation_manager_(nullptr),
       partial_run_graphs_(5),
       cancellation_manager_(new CancellationManager) {
   UpdateLastAccessTime();
@@ -1104,7 +1112,7 @@ Status MasterSession::StartStep(const BuildGraphOptions& opts, int64* count,
       auto entry = new ReffedClientGraph(
           handle_, opts, std::move(client_graph), session_opts_,
           stats_publisher_factory_, execution_state_.get(), is_partial,
-          env_->worker_cache);
+          env_->worker_cache, killed_cancellation_manager_);
       iter = m->insert({hash, entry}).first;
       VLOG(1) << "Preparing to execute new graph";
     }
@@ -1158,6 +1166,7 @@ Status MasterSession::PartialRunSetup(const PartialRunSetupRequest* req,
 
   rcg->Ref();
   RunState* run_state = new RunState(inputs, outputs, rcg, step_id, count);
+  cur_run_state_ = run_state;
   {
     mutex_lock l(mu_);
     partial_runs_.emplace(

@@ -80,6 +80,7 @@ class GrpcSession : public Session {
   Status Extend(const RunOptions& run_options, const GraphDef& graph) override;
 
   Status Close() override;
+  Status Kill() override;
 
   // NOTE: This API is still experimental and may change.
   ::tensorflow::Status PRunSetup(const std::vector<string>& input_names,

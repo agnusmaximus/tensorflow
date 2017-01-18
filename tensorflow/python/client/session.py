@@ -553,6 +553,12 @@ class BaseSession(SessionInterface):
     finally:
       tf_session.TF_DeleteSessionOptions(opts)
 
+  def kill(self):
+    with self._extend_lock:
+      if self._opened and not self._closed:
+        with errors.raise_exception_on_not_ok_status() as status:
+          tf_session.TF_KillSession(self._session, status)
+
   def close(self):
     """Closes this session.
 

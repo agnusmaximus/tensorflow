@@ -18,6 +18,7 @@ limitations under the License.
 
 #include <functional>
 
+#include "tensorflow/core/framework/cancellation.h"
 #include "tensorflow/core/platform/macros.h"
 #include "tensorflow/core/platform/mutex.h"
 #include "tensorflow/core/platform/thread_annotations.h"
@@ -64,9 +65,19 @@ class CallOptions {
   int64 GetTimeout();
   void SetTimeout(int64 ms);
 
+  void SetKilledCancellationManager(CancellationManager *killed_cm) {
+    killed_cancellation_manager_ = killed_cm;
+  }
+
+  CancellationManager *GetKilledCancellationManager() {
+    return killed_cancellation_manager_;
+  }
+
  private:
   mutex mu_;
   CancelFunction cancel_func_ GUARDED_BY(mu_);
+
+  CancellationManager *killed_cancellation_manager_;
 
   // RPC operation timeout in milliseconds.
   int64 timeout_in_ms_ GUARDED_BY(mu_);

@@ -36,7 +36,12 @@ Status WaitForNotification(CallOptions* call_options, Notification* n) {
       return errors::DeadlineExceeded("Operation timed out.");
     }
   } else {
-    n->WaitForNotification();
+    bool killed = n->WaitForNotification();
+    if (killed) {
+      call_options->StartCancel();
+      n->WaitForNotification();
+      return errors::DeadlineExceeded("Killed");
+    }
   }
   return Status::OK();
 }
@@ -47,53 +52,93 @@ LocalMaster::LocalMaster(Master* master_impl) : master_impl_(master_impl) {}
 Status LocalMaster::CreateSession(CallOptions* call_options,
                                   const CreateSessionRequest* request,
                                   CreateSessionResponse* response) {
-  Notification n;
+  Notification *n = new Notification();
   Status ret;
-  master_impl_->CreateSession(request, response, [&n, &ret](const Status& s) {
+  master_impl_->CreateSession(request, response, [n, &ret](const Status& s) {
     ret.Update(s);
-    n.Notify();
+    n->Notify();
   });
-  TF_RETURN_IF_ERROR(WaitForNotification(call_options, &n));
+
+  {
+    mutex_lock l(step_notifications_mu_);
+    step_notifications_.push_back(n);
+  }
+
+  TF_RETURN_IF_ERROR(WaitForNotification(call_options, n));
   return ret;
 }
 
 Status LocalMaster::ExtendSession(CallOptions* call_options,
                                   const ExtendSessionRequest* request,
                                   ExtendSessionResponse* response) {
-  Notification n;
+  Notification *n = new Notification();
   Status ret;
-  master_impl_->ExtendSession(request, response, [&n, &ret](const Status& s) {
+  master_impl_->ExtendSession(request, response, [n, &ret](const Status& s) {
     ret.Update(s);
-    n.Notify();
+    n->Notify();
   });
-  TF_RETURN_IF_ERROR(WaitForNotification(call_options, &n));
+
+  {
+    mutex_lock l(step_notifications_mu_);
+    step_notifications_.push_back(n);
+  }
+
+  TF_RETURN_IF_ERROR(WaitForNotification(call_options, n));
   return ret;
 }
 
 Status LocalMaster::PartialRunSetup(CallOptions* call_options,
                                     const PartialRunSetupRequest* request,
                                     PartialRunSetupResponse* response) {
-  Notification n;
+  Notification *n = new Notification();
   Status ret;
-  master_impl_->PartialRunSetup(request, response, [&n, &ret](const Status& s) {
+  master_impl_->PartialRunSetup(request, response, [n, &ret](const Status& s) {
     ret.Update(s);
-    n.Notify();
+    n->Notify();
   });
-  TF_RETURN_IF_ERROR(WaitForNotification(call_options, &n));
+  
+  {
+    mutex_lock l(step_notifications_mu_);
+    step_notifications_.push_back(n);
+  }
+
+  TF_RETURN_IF_ERROR(WaitForNotification(call_options, n));
   return ret;
+}
+
+Status LocalMaster::Kill() {
+  std::cout << "LocalMaster - Kill()" << std::endl;
+  {
+    mutex_lock l(step_notifications_mu_);
+    master_impl_->GetKilledCancellationManager()->StartCancel();
+    while (!step_notifications_.empty()) {
+      Notification *n = step_notifications_.back();
+      step_notifications_.pop_back();
+      if (!n->HasBeenNotified()) {
+	n->KillConditionVariableWakeup();
+      }
+    }
+  }
+  return Status::OK();
 }
 
 Status LocalMaster::RunStep(CallOptions* call_options,
                             RunStepRequestWrapper* request,
                             RunStepResponse* response) {
-  Notification n;
+  Notification *n = new Notification();
   Status ret;
   master_impl_->RunStep(call_options, request, response,
-                        [&n, &ret](const Status& s) {
+                        [n, &ret](const Status& s) 
+			{
                           ret.Update(s);
-                          n.Notify();
+                          n->Notify();
                         });
-  TF_RETURN_IF_ERROR(WaitForNotification(call_options, &n));
+  
+  {
+    mutex_lock l(step_notifications_mu_);
+    step_notifications_.push_back(n);
+  }
+  TF_RETURN_IF_ERROR(WaitForNotification(call_options, n));
   return ret;
 }
 
@@ -104,39 +149,55 @@ MutableRunStepRequestWrapper* LocalMaster::CreateRunStepRequest() {
 Status LocalMaster::CloseSession(CallOptions* call_options,
                                  const CloseSessionRequest* request,
                                  CloseSessionResponse* response) {
-  Notification n;
+  Notification *n = new Notification();
   Status ret;
-  master_impl_->CloseSession(request, response, [&n, &ret](const Status& s) {
+  master_impl_->CloseSession(request, response, [n, &ret](const Status& s) {
     ret.Update(s);
-    n.Notify();
+    n->Notify();
   });
-  TF_RETURN_IF_ERROR(WaitForNotification(call_options, &n));
+  {
+    mutex_lock l(step_notifications_mu_);
+    step_notifications_.push_back(n);
+  }
+  TF_RETURN_IF_ERROR(WaitForNotification(call_options, n));
   return ret;
 }
 
 Status LocalMaster::ListDevices(CallOptions* call_options,
                                 const ListDevicesRequest* request,
                                 ListDevicesResponse* response) {
-  Notification n;
+  Notification *n = new Notification();
   Status ret;
-  master_impl_->ListDevices(request, response, [&n, &ret](const Status& s) {
+  master_impl_->ListDevices(request, response, [n, &ret](const Status& s) {
     ret.Update(s);
-    n.Notify();
+    n->Notify();
   });
-  TF_RETURN_IF_ERROR(WaitForNotification(call_options, &n));
+
+  {
+    mutex_lock l(step_notifications_mu_);
+    step_notifications_.push_back(n);
+  }
+
+  TF_RETURN_IF_ERROR(WaitForNotification(call_options, n));
   return ret;
 }
 
 Status LocalMaster::Reset(CallOptions* call_options,
                           const ResetRequest* request,
                           ResetResponse* response) {
-  Notification n;
+  Notification *n = new Notification();
   Status ret;
-  master_impl_->Reset(request, response, [&n, &ret](const Status& s) {
+  master_impl_->Reset(request, response, [n, &ret](const Status& s) {
     ret.Update(s);
-    n.Notify();
+    n->Notify();
   });
-  TF_RETURN_IF_ERROR(WaitForNotification(call_options, &n));
+
+  {
+    mutex_lock l(step_notifications_mu_);
+    step_notifications_.push_back(n);
+  }
+
+  TF_RETURN_IF_ERROR(WaitForNotification(call_options, n));
   return ret;
 }
 

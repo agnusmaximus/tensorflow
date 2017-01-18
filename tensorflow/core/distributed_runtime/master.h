@@ -20,6 +20,7 @@ limitations under the License.
 
 #include "tensorflow/core/common_runtime/device.h"
 #include "tensorflow/core/distributed_runtime/call_options.h"
+#include "tensorflow/core/framework/cancellation.h"
 #include "tensorflow/core/distributed_runtime/master_env.h"
 #include "tensorflow/core/distributed_runtime/master_session.h"
 #include "tensorflow/core/lib/core/notification.h"
@@ -60,8 +61,14 @@ class Master {
 
   void Reset(const ResetRequest* req, ResetResponse* resp, MyClosure done);
 
+  CancellationManager* GetKilledCancellationManager() {
+    return killed_cancellation_manager_;
+  }
+
  private:
   typedef Master ME;
+
+  CancellationManager *killed_cancellation_manager_;
 
   // Not owned.
   MasterEnv* env_ = nullptr;

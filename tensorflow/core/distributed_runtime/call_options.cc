@@ -19,7 +19,9 @@ limitations under the License.
 
 namespace tensorflow {
 
-CallOptions::CallOptions() {}
+CallOptions::CallOptions() {
+  killed_cancellation_manager_ = nullptr;
+}
 
 void CallOptions::StartCancel() {
   mutex_lock l(mu_);

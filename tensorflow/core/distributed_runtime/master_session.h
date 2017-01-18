@@ -19,6 +19,7 @@ limitations under the License.
 #include <atomic>
 #include <vector>
 
+#include "tensorflow/core/framework/cancellation.h"
 #include "tensorflow/core/common_runtime/device_set.h"
 #include "tensorflow/core/common_runtime/simple_graph_execution_state.h"
 #include "tensorflow/core/common_runtime/stats_publisher_interface.h"
@@ -88,7 +89,14 @@ class MasterSession : public core::RefCounted {
   // Close() may block the caller thread for a long time.
   Status Close();
 
+  void SetKilledCancellationManager(CancellationManager *killed_cm) {
+    killed_cancellation_manager_ = killed_cm;
+  }
+
  private:
+
+  CancellationManager* killed_cancellation_manager_;
+
   SessionOptions session_opts_;
 
   // Not owned.
@@ -185,6 +193,8 @@ class MasterSession : public core::RefCounted {
   Status BuildAndRegisterPartitions(ReffedClientGraph* rcg);
 
   TF_DISALLOW_COPY_AND_ASSIGN(MasterSession);
+
+  RunState *cur_run_state_;
 };
 
 }  // end namespace tensorflow

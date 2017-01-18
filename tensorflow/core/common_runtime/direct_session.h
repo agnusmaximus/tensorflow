@@ -97,6 +97,8 @@ class DirectSession : public Session {
 
   ::tensorflow::Status Close() override;
 
+  ::tensorflow::Status Kill() override;
+
   void ExportCostModels(CostModelManager::CostModelMap* cost_models) {
     cost_model_manager_.ExportCostModels(cost_models);
   }
@@ -245,6 +247,7 @@ class DirectSession : public Session {
   // Schedules 'c' for execution on pool.
   void SchedClosure(thread::ThreadPool* pool, std::function<void()> c);
 
+  mutex cur_step_cancellation_manager_lock_;
   mutex executor_lock_;  // protects executors_
   // Holds mappings from signature to the executors that process
   // it. The reason for a level of indirection around mapped_type is
@@ -301,6 +304,9 @@ class DirectSession : public Session {
 
   // EXPERIMENTAL: debugger (tfdbg) related
   friend class DebugGateway;
+
+  CancellationManager *cur_step_cancellation_manager_;
+  RunState *cur_run_state_;
 };
 
 }  // end namespace tensorflow

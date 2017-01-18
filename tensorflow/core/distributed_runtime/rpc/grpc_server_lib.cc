@@ -145,7 +145,9 @@ Status GrpcServer::Init() {
   master_impl_.reset(new Master(&master_env_, 0.0));
   master_service_ = NewGrpcMasterService(master_impl_.get(), &builder);
   worker_impl_.reset(NewGrpcWorker(&worker_env_));
-  worker_service_ = NewGrpcWorkerService(worker_impl_.get(), &builder);
+  CHECK(master_impl_->GetKilledCancellationManager());
+  worker_service_ = NewGrpcWorkerService(worker_impl_.get(), &builder, 
+					 master_impl_->GetKilledCancellationManager());
   server_ = builder.BuildAndStart();
 
   if (!server_) {

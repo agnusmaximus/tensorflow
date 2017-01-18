@@ -51,8 +51,8 @@ namespace {
 
 class GrpcWorkerService : public AsyncServiceInterface {
  public:
-  GrpcWorkerService(GrpcWorker* worker, ::grpc::ServerBuilder* builder)
-      : worker_(worker), is_shutdown_(false) {
+  GrpcWorkerService(GrpcWorker* worker, ::grpc::ServerBuilder* builder, CancellationManager *killed_cm)
+    : worker_(worker), is_shutdown_(false), killed_cancellation_manager_(killed_cm) {
     builder->RegisterService(&worker_service_);
     cq_ = builder->AddCompletionQueue().release();
   }
@@ -153,6 +153,7 @@ class GrpcWorkerService : public AsyncServiceInterface {
  private:
   GrpcWorker* worker_;                 // Not owned.
   ::grpc::ServerCompletionQueue* cq_;  // Owned.
+  CancellationManager *killed_cancellation_manager_;
 
   grpc::WorkerService::AsyncService worker_service_;
 
@@ -210,12 +211,14 @@ class GrpcWorkerService : public AsyncServiceInterface {
     ENQUEUE_REQUEST(DeregisterGraph, false);
   }
 
-  void RunGraphHandler(WorkerCall<RunGraphRequest, RunGraphResponse>* call) {
+  void RunGraphHandler(WorkerCall<RunGraphRequest, RunGraphResponse>* call) {    
     Schedule([this, call]() {
       CallOptions* call_opts = new CallOptions;
       ProtoRunGraphRequest* wrapped_request =
           new ProtoRunGraphRequest(&call->request);
       call->SetCancelCallback([call_opts]() { call_opts->StartCancel(); });
+      call_opts->SetKilledCancellationManager(killed_cancellation_manager_);
+      CHECK(call_opts->GetKilledCancellationManager());
       worker_->RunGraphAsync(
           call_opts, wrapped_request, &call->response,
           [call, call_opts, wrapped_request](const Status& s) {
@@ -381,8 +384,9 @@ void GrpcWorker::RecvTensorAsync(CallOptions* opts,
   GrpcWorker* NewGrpcWorker(WorkerEnv* env) { return new GrpcWorker(env); }
 
   AsyncServiceInterface* NewGrpcWorkerService(GrpcWorker* worker,
-                                              ::grpc::ServerBuilder* builder) {
-    return new GrpcWorkerService(worker, builder);
+                                              ::grpc::ServerBuilder* builder,
+					      CancellationManager *killed_cm) {
+    return new GrpcWorkerService(worker, builder, killed_cm);
 }
 
 }  // namespace tensorflow

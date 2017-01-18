@@ -19,6 +19,7 @@ limitations under the License.
 #include <assert.h>
 #include <chrono>              // NOLINT
 #include <condition_variable>  // NOLINT
+#include <iostream>
 
 #include "tensorflow/core/platform/mutex.h"
 #include "tensorflow/core/platform/types.h"
@@ -27,10 +28,11 @@ namespace tensorflow {
 
 class Notification {
  public:
-  Notification() : notified_(false) {}
+   Notification() : notified_(false), killed_(false) {}
   ~Notification() {}
 
   void Notify() {
+
     mutex_lock l(mu_);
     assert(!notified_);
     notified_ = true;
@@ -42,11 +44,21 @@ class Notification {
     return notified_;
   }
 
-  void WaitForNotification() {
+  bool WaitForNotification() {
     mutex_lock l(mu_);
-    while (!notified_) {
+
+    while (!notified_ && !killed_) {
       cv_.wait(l);
     }
+    bool was_killed = killed_;
+    if (killed_) killed_ = false;    
+    return was_killed;
+  }
+
+  void KillConditionVariableWakeup() {
+    mutex_lock l(mu_);
+    killed_ = true;
+    cv_.notify_all();
   }
 
  private:
@@ -60,7 +72,7 @@ class Notification {
 
   mutex mu_;
   condition_variable cv_;
-  bool notified_;
+  bool notified_, killed_;
 };
 
 inline bool WaitForNotificationWithTimeout(Notification* n,

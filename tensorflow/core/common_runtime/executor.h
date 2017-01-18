@@ -16,6 +16,8 @@ limitations under the License.
 #ifndef TENSORFLOW_COMMON_RUNTIME_EXECUTOR_H_
 #define TENSORFLOW_COMMON_RUNTIME_EXECUTOR_H_
 
+#include <iostream>
+
 #include "tensorflow/core/common_runtime/device.h"
 #include "tensorflow/core/framework/rendezvous.h"
 #include "tensorflow/core/framework/session_state.h"
@@ -86,6 +88,7 @@ class Executor {
     StepStatsCollector* stats_collector = nullptr;
     FunctionCallFrame* call_frame = nullptr;
     CancellationManager* cancellation_manager = nullptr;
+    CancellationManager* killed_cancellation_manager = nullptr;
     SessionState* session_state = nullptr;
     TensorStore* tensor_store = nullptr;
     ScopedStepContainer* step_container = nullptr;

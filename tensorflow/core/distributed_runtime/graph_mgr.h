@@ -77,6 +77,7 @@ class GraphMgr {
                     const ExecutorOpts& opts, StepStatsCollector* collector,
                     CostGraphDef* cost_graph,
                     CancellationManager* cancellation_manager,
+		    CancellationManager* killed_cancellation_manager,
                     const NamedTensors& in, StatusCallback done);
 
   Status SendInputs(const int64 step_id, const NamedTensors& in);
@@ -145,6 +146,7 @@ class GraphMgr {
                               StepStatsCollector* collector,
                               CostGraphDef* cost_graph,
                               CancellationManager* cancellation_manager,
+                              CancellationManager* killed_cancellation_manager,
                               StatusCallback done);
 
   // Don't attempt to process cost models unless explicitely requested for at

@@ -18,6 +18,7 @@ limitations under the License.
 #include <atomic>
 #include <string>
 #include <vector>
+#include <iostream>
 
 #include "tensorflow/core/common_runtime/constant_folding.h"
 #include "tensorflow/core/common_runtime/debugger_state_interface.h"
@@ -368,6 +369,7 @@ Status DirectSession::Run(const RunOptions& run_options,
                           const std::vector<string>& target_nodes,
                           std::vector<Tensor>* outputs,
                           RunMetadata* run_metadata) {
+  std::cout << "DirectSession - Run()" << std::endl;
   TF_RETURN_IF_ERROR(CheckNotClosed());
   direct_session_runs->GetCell()->IncrementBy(1);
   {
@@ -413,6 +415,12 @@ Status DirectSession::Run(const RunOptions& run_options,
   RunState run_state(args.step_id, &devices_);
   run_state.rendez = new IntraProcessRendezvous(device_mgr_.get());
   CancellationManager step_cancellation_manager;
+  
+  {
+    mutex_lock cur_step_l(cur_step_cancellation_manager_lock_);
+    cur_step_cancellation_manager_ = &step_cancellation_manager;
+    cur_run_state_ = &run_state;
+  }
 
   // Send inputs.
   TF_RETURN_IF_ERROR(SendInputs(inputs, executors_and_keys, run_state.rendez));
@@ -524,6 +532,7 @@ Status DirectSession::Run(const RunOptions& run_options,
 
   // Build and return the cost model as instructed.
   mutex_lock l(executor_lock_);
+
   ++executors_and_keys->step_count;
   if (update_cost_model) {
     // Build the cost model
@@ -639,6 +648,7 @@ Status DirectSession::PRunSetup(const std::vector<string>& input_names,
 Status DirectSession::PRun(const string& handle, const NamedTensorList& inputs,
                            const std::vector<string>& output_names,
                            std::vector<Tensor>* outputs) {
+  
   TF_RETURN_IF_ERROR(CheckNotClosed());
   std::vector<string> parts = str_util::Split(handle, ';');
   const string& key = parts[0];
@@ -1170,6 +1180,11 @@ Status DirectSession::CreateGraphs(
   return ::tensorflow::Status::OK();
 }
 
+::tensorflow::Status DirectSession::Kill() {
+  cur_run_state_->executors_done.KillConditionVariableWakeup();
+  return ::tensorflow::Status::OK();
+}
+
 DirectSession::RunState::RunState(
     const std::vector<string>& pending_input_names,
     const std::vector<string>& pending_output_names, int64 step_id,
@@ -1207,6 +1222,7 @@ DirectSession::RunState::~RunState() {
 void DirectSession::WaitForNotification(RunState* run_state,
                                         CancellationManager* cm,
                                         int64 timeout_in_ms) {
+
   Status status =
       WaitForNotification(&run_state->executors_done, timeout_in_ms);
   if (!status.ok()) {
@@ -1231,7 +1247,11 @@ void DirectSession::WaitForNotification(RunState* run_state,
                     "Timed out waiting for notification");
     }
   } else {
-    notification->WaitForNotification();
+    bool was_killed = notification->WaitForNotification();
+    if (was_killed) {
+      return Status(error::DEADLINE_EXCEEDED,
+                    "Killed");
+    }
   }
   return Status::OK();
 }

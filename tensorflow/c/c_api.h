@@ -952,6 +952,8 @@ extern void TF_SessionPRun(TF_Session*, const char* handle,
 
 typedef struct TF_DeprecatedSession TF_DeprecatedSession;
 
+extern void TF_KillSession(TF_DeprecatedSession*, TF_Status* status);
+
 extern TF_DeprecatedSession* TF_NewDeprecatedSession(const TF_SessionOptions*,
                                                      TF_Status* status);
 extern void TF_CloseDeprecatedSession(TF_DeprecatedSession*, TF_Status* status);

@@ -57,7 +57,8 @@ Master::Master(MasterEnv* env, double session_gc_seconds)
     : env_(env),
       last_1000_steps_(1000),
       step_count_(0),
-      session_gc_seconds_(session_gc_seconds) {
+      session_gc_seconds_(session_gc_seconds),
+      killed_cancellation_manager_(nullptr) {
   // Right now, a master service must be co-located with a device.
   // Otherwise, fetches do not work.
   CHECK(!env->local_devices.empty());
@@ -68,6 +69,10 @@ Master::Master(MasterEnv* env, double session_gc_seconds)
   } else {
     gc_thread_ = nullptr;
   }
+
+  // Initialize the killed cancellation manager.
+  killed_cancellation_manager_ = new CancellationManager();
+  std::cout << "INITIALIZING KILLED CM " << (long long int) killed_cancellation_manager_ << std::endl;
 }
 
 Master::~Master() {
@@ -293,6 +298,8 @@ void Master::CreateSession(const CreateSessionRequest* req,
       options.config = req->config();
       MasterSession* session =
           env_->master_session_factory(options, env_, &remote_devices);
+      session->SetKilledCancellationManager(killed_cancellation_manager_);
+      
       GraphDef* gdef =
           const_cast<CreateSessionRequest*>(req)->mutable_graph_def();
       Status create_status = session->Create(gdef);

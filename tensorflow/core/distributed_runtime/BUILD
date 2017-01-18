@@ -113,6 +113,7 @@ cc_library(
     hdrs = ["call_options.h"],
     deps = [
         "//tensorflow/core:lib",
+        "//tensorflow/core:framework",
     ],
 )
 

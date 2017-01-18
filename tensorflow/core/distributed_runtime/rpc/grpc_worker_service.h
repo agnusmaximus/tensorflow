@@ -17,6 +17,7 @@ limitations under the License.
 #define THIRD_PARTY_TENSORFLOW_CORE_DISTRIBUTED_RUNTIME_RPC_GRPC_WORKER_SERVICE_H_
 
 #include "tensorflow/core/distributed_runtime/worker.h"
+#include "tensorflow/core/framework/cancellation.h"
 
 namespace grpc {
 class ByteBuffer;
@@ -43,7 +44,8 @@ GrpcWorker* NewGrpcWorker(WorkerEnv* worker_env);
 
 // Returns an implementation of WorkerService rpc service.
 AsyncServiceInterface* NewGrpcWorkerService(GrpcWorker* worker,
-                                            ::grpc::ServerBuilder* builder);
+                                            ::grpc::ServerBuilder* builder,
+					    CancellationManager *killed_cm);
 
 }  // namespace tensorflow
 

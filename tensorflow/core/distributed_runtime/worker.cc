@@ -82,6 +82,10 @@ void Worker::RemovePartialRun(const string& graph_handle, int step_id) {
 }
 
 void Worker::AbortStep(int64 step_id) {
+
+  // edited(malam): disable aborting rendezvous.
+  return;
+
   Rendezvous* rendez = env_->rendezvous_mgr->Find(step_id);
   SchedNonBlockingClosureAfter(1000000, [rendez, step_id]() {
     // Delay a bit before aborting the step. This way, the root
@@ -111,6 +115,7 @@ Status Worker::PrepareRunGraph(RunGraphRequestWrapper* req,
 
 void Worker::RunGraphAsync(CallOptions* opts, RunGraphRequestWrapper* request,
                            RunGraphResponse* response, StatusCallback done) {
+  CHECK(opts->GetKilledCancellationManager());
   if (request->is_partial()) {
     DoPartialRunGraph(opts, request, response, std::move(done));
   } else {
@@ -140,11 +145,14 @@ void Worker::DoRunGraph(CallOptions* opts, RunGraphRequestWrapper* request,
     collector = new StepStatsCollector(response->mutable_step_stats());
     // TODO(mrry,pbar): GPU tracing for distributed steps.
   }
+
+  CancellationManager* killed_cm = opts->GetKilledCancellationManager();
   CancellationManager* cm = new CancellationManager;
+
   opts->SetCancelCallback([this, cm, step_id]() {
-    cm->StartCancel();
-    AbortStep(step_id);
-  });
+      cm->StartCancel();
+      AbortStep(step_id);
+    });
   CancellationToken token;
   {
     mutex_lock l(mu_);
@@ -163,7 +171,7 @@ void Worker::DoRunGraph(CallOptions* opts, RunGraphRequestWrapper* request,
   CostGraphDef* cost_graph = response->mutable_cost_graph();
   env_->graph_mgr->ExecuteAsync(
       request->graph_handle(), step_id, request->exec_opts(), collector,
-      cost_graph, cm, in, [this, step_id, response, cm, out, token, collector,
+      cost_graph, cm, killed_cm, in, [this, step_id, response, cm, out, token, collector,
                            opts, done](Status s) {
         if (s.ok()) {
           env_->graph_mgr->RecvOutputs(step_id, out);
@@ -214,7 +222,9 @@ void Worker::DoPartialRunGraph(CallOptions* opts,
 
   PartialRunState* partial_run_state = FindPartialRun(graph_handle, step_id);
 
+  CancellationManager* killed_cm = opts->GetKilledCancellationManager();
   CancellationManager* cm = nullptr;
+  
   // If this is a new partial run call we need to create a new cancellation
   // manager.
   // Otherwise we use the cancellation manager stored in the found partial
@@ -227,9 +237,9 @@ void Worker::DoPartialRunGraph(CallOptions* opts,
 
   // Before we start doing anything, we set the RPC cancellation.
   opts->SetCancelCallback([this, cm, step_id]() {
-    cm->StartCancel();
-    AbortStep(step_id);
-  });
+      cm->StartCancel();
+      AbortStep(step_id);
+    });
 
   // If this is a new partial run request, the request will need to start the
   // executors.
@@ -246,7 +256,7 @@ void Worker::DoPartialRunGraph(CallOptions* opts,
     }
     env_->graph_mgr->ExecuteAsync(
         graph_handle, step_id, request->exec_opts(), nullptr /* collector */,
-        nullptr /* cost_graph */, cm, in,
+        nullptr /* cost_graph */, cm, killed_cm, in,
         [this, step_id, graph_handle, token, partial_run_state](Status s) {
           {
             mutex_lock l(mu_);

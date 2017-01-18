@@ -336,6 +336,7 @@ void GraphMgr::ExecuteAsync(const string& handle, const int64 step_id,
                             StepStatsCollector* collector,
                             CostGraphDef* cost_graph,
                             CancellationManager* cancellation_manager,
+			    CancellationManager* killed_cancellation_manager,
                             const NamedTensors& in, StatusCallback done) {
   // Lookup an item. Holds one ref while executing.
   Item* item = nullptr;
@@ -365,7 +366,7 @@ void GraphMgr::ExecuteAsync(const string& handle, const int64 step_id,
   }
 
   StartParallelExecutors(handle, step_id, item, rendezvous, collector,
-                         cost_graph, cancellation_manager,
+                         cost_graph, cancellation_manager, killed_cancellation_manager,
                          [this, item, rendezvous, done](const Status& s) {
                            done(s);
                            rendezvous->Unref();
@@ -378,6 +379,7 @@ void GraphMgr::StartParallelExecutors(const string& handle, int64 step_id,
                                       StepStatsCollector* collector,
                                       CostGraphDef* cost_graph,
                                       CancellationManager* cancellation_manager,
+				      CancellationManager* killed_cancellation_manager,
                                       StatusCallback done) {
   const int num_units = item->units.size();
   CHECK_GE(num_units, 1);
@@ -400,6 +402,7 @@ void GraphMgr::StartParallelExecutors(const string& handle, int64 step_id,
   }
   args.rendezvous = rendezvous;
   args.cancellation_manager = cancellation_manager;
+  args.killed_cancellation_manager = killed_cancellation_manager;
   args.stats_collector = collector;
   args.step_container = step_container;
   args.sync_on_finish = true;
@@ -411,6 +414,7 @@ void GraphMgr::StartParallelExecutors(const string& handle, int64 step_id,
   // Line below is equivalent to this code, but does one less indirect call:
   //  args.runner = [pool](std::function<void()> fn) { pool->Schedule(fn); };
   args.runner = std::bind(&thread::ThreadPool::Schedule, pool, _1);
+  CHECK(args.killed_cancellation_manager);
   for (const auto& unit : item->units) {
     unit.root->RunAsync(args, barrier->Get());
   }

@@ -16,6 +16,8 @@ limitations under the License.
 #ifndef TENSORFLOW_CORE_DISTRIBUTED_RUNTIME_MASTER_INTERFACE_H_
 #define TENSORFLOW_CORE_DISTRIBUTED_RUNTIME_MASTER_INTERFACE_H_
 
+#include <iostream>
+
 #include "tensorflow/core/distributed_runtime/call_options.h"
 #include "tensorflow/core/distributed_runtime/message_wrappers.h"
 #include "tensorflow/core/lib/core/errors.h"
@@ -43,6 +45,11 @@ class MasterInterface {
                                  const PartialRunSetupRequest* request,
                                  PartialRunSetupResponse* response) {
     return errors::Unimplemented("Partial run not implemented for this master");
+  }
+
+  virtual Status Kill() {
+    std::cout << "master_inferface.h - Kill() unimplemented" << std::endl;
+    return Status::OK();
   }
 
   virtual Status RunStep(CallOptions* call_options,

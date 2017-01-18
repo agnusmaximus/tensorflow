@@ -301,6 +301,11 @@ Status GrpcSession::PRun(const string& handle,
                    /* run_metadata */ nullptr, handle);
 }
 
+Status GrpcSession::Kill() {
+  std::cout << "GrpcSession - Kill()" << std::endl;  
+  return master_->Kill();
+}
+
 Status GrpcSession::Close() {
   CloseSessionRequest req;
   {

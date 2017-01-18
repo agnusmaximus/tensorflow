@@ -82,8 +82,8 @@ class LogMessageFatal : public LogMessage {
 #else
 // Otherwise, Set TF_CPP_MIN_VLOG_LEVEL environment to update minimum log level
 // of VLOG
-#define VLOG_IS_ON(lvl) \
-  ((lvl) <= ::tensorflow::internal::LogMessage::MinVLogLevel())
+// edited(malam): turn on all VLOGs.
+#define VLOG_IS_ON(lvl) ((lvl) <= ::tensorflow::internal::LogMessage::MinVLogLevel()) 
 #endif
 
 #define VLOG(lvl)      \

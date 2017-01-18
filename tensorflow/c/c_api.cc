@@ -19,6 +19,7 @@ limitations under the License.
 #include <limits>
 #include <memory>
 #include <vector>
+#include <iostream>
 
 #include "tensorflow/cc/saved_model/loader.h"
 #include "tensorflow/core/common_runtime/shape_refiner.h"
@@ -322,6 +323,12 @@ TF_DeprecatedSession* TF_NewDeprecatedSession(const TF_SessionOptions* opt,
     DCHECK_EQ(nullptr, session);
     return NULL;
   }
+}
+
+void TF_KillSession(TF_DeprecatedSession* s, TF_Status *status){
+  std::cout << "c_api.cc - TF_KillSession..." << std::endl;
+  //status->status = s->session->Kill();
+  s->session->Kill();
 }
 
 void TF_CloseDeprecatedSession(TF_DeprecatedSession* s, TF_Status* status) {
