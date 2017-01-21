@@ -900,6 +900,7 @@ class ExecutorState {
   Executor::DoneCallback done_cb_;
 
   std::atomic_int_fast32_t num_outstanding_ops_;
+  bool at_least_one_node_finished;
 
   mutex mu_;
   Status status_ GUARDED_BY(mu_);
@@ -1003,7 +1004,8 @@ ExecutorState::ExecutorState(const Executor::Args& args, ExecutorImpl* impl)
       killed_cancellation_manager_(args.killed_cancellation_manager),
       runner_(args.runner),
       sync_on_finish_(args.sync_on_finish),
-      num_outstanding_ops_(0) {
+      num_outstanding_ops_(0),
+      at_least_one_node_finished(false) {
 
   // We start the entire execution in iteration 0 of the root frame
   // so let us create the root frame and the state for iteration 0.
@@ -1206,11 +1208,6 @@ struct ExecutorState::AsyncState {
 
 void ExecutorState::Process(TaggedNode tagged_node, int64 scheduled_usec) {
 
-  std::cout << "KILLED CM " << (long long int)killed_cancellation_manager_ << std::endl;
-  if (killed_cancellation_manager_) {
-    std::cout << "ISCANCELLED " << killed_cancellation_manager_->IsCancelled() << std::endl;
-  }
-
   const NodeItem* nodes = impl_->nodes_;
   TaggedNodeSeq ready;
   TaggedNodeReadyQueue inline_ready;
@@ -1278,8 +1275,8 @@ void ExecutorState::Process(TaggedNode tagged_node, int64 scheduled_usec) {
       nodestats::SetAllStart(stats);
     }
 
-    std::cout << "Process node: " << id << " step " << params.step_id << " "
-	      << SummarizeNodeDef(node->def()) << std::endl;
+    //std::cout << "Process node: " << id << " step " << params.step_id << " "
+    //<< SummarizeNodeDef(node->def()) << std::endl;
 
     if (vlog_) {
       VLOG(1) << "Process node: " << id << " step " << params.step_id << " "
@@ -1354,30 +1351,47 @@ void ExecutorState::Process(TaggedNode tagged_node, int64 scheduled_usec) {
           const int id = state->tagged_node.node->id();
           MaybeMarkCompleted(input_frame, input_iter, id);
           TaggedNodeSeq ready;
-          if (s.ok()) {
-            PropagateOutputs(state->tagged_node, outputs, &ready);
+	 
+	  bool cancelled = killed_cancellation_manager_ && killed_cancellation_manager_->IsCancelled();
+	  if (s.ok()) {
+	    PropagateOutputs(state->tagged_node, outputs, &ready);
           }
-          outputs.clear();
-          if (s.ok() && impl_->device_record_tensor_accesses_) {
-            // Get the list of all tensors accessed during the execution
-            TensorReferenceVector accessed;
-            state->ctx.retrieve_accessed_tensors(&accessed);
-            if (stats) nodestats::SetReferencedTensors(stats, accessed);
-            // callee takes ownership of the vector
-            device->ConsumeListOfAccessedTensors(state->ctx.op_device_context(),
-                                                 accessed);
+	  outputs.clear();
+	  if (s.ok() && impl_->device_record_tensor_accesses_) {
+	    // Get the list of all tensors accessed during the execution
+	    TensorReferenceVector accessed;
+	    state->ctx.retrieve_accessed_tensors(&accessed);
+	    if (stats) nodestats::SetReferencedTensors(stats, accessed);
+	    // callee takes ownership of the vector
+	    device->ConsumeListOfAccessedTensors(state->ctx.op_device_context(),
+						 accessed);
           }
-          bool completed = NodeDone(s, state->item.node, ready, stats, nullptr);
-          delete state;
-          if (completed) Finish();
+	  bool completed = NodeDone(s, state->item.node, ready, stats, nullptr);
+	  delete state;
+	    
+	  if (completed) {
+	    //std::cout << "FINISH FROM AUTO CALLBACK" << std::endl;
+	      Finish();
+	  }	  
         };
         if (stats) nodestats::SetOpStart(stats);
-        device->ComputeAsync(async, &state->ctx, done);
+	
+	bool cancelled = killed_cancellation_manager_ && killed_cancellation_manager_->IsCancelled();
+	if (cancelled) {
+	  done();
+	}
+	else {
+	  device->ComputeAsync(async, &state->ctx, done);
+	}
       } else {
+	bool cancelled = killed_cancellation_manager_ && killed_cancellation_manager_->IsCancelled();
         // Synchronous computes.
         OpKernelContext ctx(&params, item.num_outputs);
         if (stats) nodestats::SetOpStart(stats);
-        device->Compute(CHECK_NOTNULL(op_kernel), &ctx);
+	if (!cancelled && at_least_one_node_finished) {
+	  device->Compute(CHECK_NOTNULL(op_kernel), &ctx);
+	}
+
         if (stats) nodestats::SetOpEnd(stats);
 
         s = ProcessOutputs(item, &ctx, &outputs, stats);
@@ -1415,8 +1429,14 @@ void ExecutorState::Process(TaggedNode tagged_node, int64 scheduled_usec) {
     }
   }  // while !inline_ready.empty()
 
+
+  //bool cancelled = killed_cancellation_manager_ && killed_cancellation_manager_->IsCancelled();
+
   // This thread of computation is done if completed = true.
-  if (completed) Finish();
+  if (completed) {
+    //std::cout << "FINISH CALLED FROM COMPLETED CALLBACK" << std::endl;
+    Finish();
+  }
 }
 
 Status ExecutorState::PrepareInputs(const NodeItem& item, Entry* first_input,
@@ -1691,6 +1711,7 @@ void ExecutorState::PropagateOutputs(const TaggedNode& tagged_node,
   // At this point, this node is completely done. We also know if the
   // completion of this node makes its frame completed.
   if (is_frame_done) {
+
     FrameState* parent_frame = input_frame->parent_frame;
     int64 parent_iter = input_frame->parent_iter;
     DeleteFrame(input_frame, ready);
@@ -1705,6 +1726,8 @@ void ExecutorState::PropagateOutputs(const TaggedNode& tagged_node,
 bool ExecutorState::NodeDone(const Status& s, const Node* node,
                              const TaggedNodeSeq& ready, NodeExecStats* stats,
                              TaggedNodeReadyQueue* inline_ready) {
+
+  at_least_one_node_finished = true;
 
   if (stats) {
     nodestats::SetAllEnd(stats);
@@ -1742,18 +1765,18 @@ bool ExecutorState::NodeDone(const Status& s, const Node* node,
     num_outstanding_ops_.fetch_add(ready_size - 1, std::memory_order_relaxed);
   }
 
-  std::cout << "Done Processing node: " << node->id() << " step " << step_id_ << " " << SummarizeNodeDef(node->def()) << std::endl;
+  //std::cout << "Done Processing node: " << node->id() << " step " << step_id_ << " " << SummarizeNodeDef(node->def()) << std::endl;
 
   bool cancelled = false;
   if (killed_cancellation_manager_) {
     cancelled = killed_cancellation_manager_->IsCancelled();
   }
 
-  std::cout << "Done Processing... Is Cancelled - " << cancelled << std::endl;
+  //std::cout << "Done Processing... Is Cancelled - " << cancelled << std::endl;
 
-  if (cancelled) {
-    return true;
-  }
+  //if (cancelled) {
+  //return true;
+  //}
 
   // Schedule the ready nodes in 'ready'.
   if (s.ok()) {
@@ -1764,10 +1787,6 @@ bool ExecutorState::NodeDone(const Status& s, const Node* node,
 
 void ExecutorState::ScheduleReady(const TaggedNodeSeq& ready,
                                   TaggedNodeReadyQueue* inline_ready) {
-  bool cancelled = false;
-  if (killed_cancellation_manager_) {
-    cancelled = killed_cancellation_manager_->IsCancelled();
-  }
 
   if (ready.empty()) return;
 
@@ -1954,20 +1973,22 @@ void ExecutorState::Finish() {
   auto done_cb = std::move(done_cb_);
   auto runner = std::move(runner_);
   mu_.unlock();
-  if (sync_on_finish_ && status.ok()) {
+  if (sync_on_finish_ && status.ok() || (sync_on_finish_ && cancelled)) {
 
     // Block until the device has finished all queued operations. For
     // devices like GPUs that continue to execute Ops after their Compute
     // methods have completed, this ensures that control is not returned to
     // the user until the step (and its side-effects) has actually completed.
+    //std::cout << "SYNCING" << std::endl;
     status = impl_->params_.device->Sync();
+    //std::cout << "DONE SYNCING" << std::endl;
   }
 
-  if (done_cb) {
-    //delete this;
-    CHECK(done_cb != nullptr);
-    runner([=]() { done_cb(status); });
-  }
+  //std::cout << "DELETINGGG FINISH " << this << std::endl;
+
+  delete this;
+  CHECK(done_cb != nullptr);
+  runner([=]() { done_cb(status); });
 }
 
 void ExecutorState::FindOrCreateChildFrame(FrameState* frame, int64 iter,
